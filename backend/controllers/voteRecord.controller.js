@@ -32,9 +32,7 @@ const sendResponse = (status, res, data, message) => {
   res.status(status).json({
     status: "success",
     message: message,
-    data: {
-      data,
-    },
+    data,
   });
 };
 
@@ -49,11 +47,13 @@ export const castVote = catchAsync(async (req, res) => {
 
   // Find the poll and option
   let poll = await Poll.findById(pollId);
+  console.log(poll.options);
   let option = await Option.findById(optionId);
 
   if (!poll || !option) {
     return res.status(404).json({ message: "Poll or Option not found" });
   }
+
   const containsOption = poll.options.some((optId) => optId.equals(optionId));
   if (!containsOption) {
     return next(new AppError("Option does not belong to this poll", 400));
@@ -87,18 +87,30 @@ export const castVote = catchAsync(async (req, res) => {
 
   const pollTotalVotes = poll.totalVotes; // Updated total votes
 
-  // Re-fetch all options to get the most accurate vote counts
-  const pollOptions = await Option.find({ _id: { $in: poll.options } });
-
-  // Calculate votes and percentages for each option
-  let pollOptionsWithVotesAndPercentage = pollOptions.map((option) => {
-    return {
-      _id: option._id,
-      option: option.option,
-      votes: option.votes,
-      percentage: (option.votes / pollTotalVotes) * 100,
-    };
-  });
+  // Use an aggregation pipeline to get all options with their votes and calculate percentage
+  const pollOptionsWithVotesAndPercentage = await Option.aggregate([
+    {
+      $match: {
+        _id: { $in: poll.options }, // Match the options that belong to this poll
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+        option: 1,
+        votes: 1,
+        percentage: {
+          $cond: {
+            if: { $eq: [pollTotalVotes, 0] }, // Handle division by zero
+            then: 0,
+            else: {
+              $multiply: [{ $divide: ["$votes", pollTotalVotes] }, 100],
+            },
+          },
+        },
+      },
+    },
+  ]);
 
   sendResponse(
     201,
@@ -116,6 +128,40 @@ export const getAllVoteRecords = catchAsync(async (req, res, next) => {
     return next(new AppError("No vote records found", 404));
   }
   sendResponse(200, res, voteRecords, "Vote records fetched successfully");
+});
+
+export const getRecordWithId = catchAsync(async (req, res, next) => {
+  // Find the vote record by ID and populate the necessary fields
+  const voteRecord = await VoteRecord.findById(req.params.id)
+    .populate("pollId", "title creator options")
+    .populate("userId", "username");
+
+  // If the vote record doesn't exist, return a 404 error
+  if (!voteRecord) {
+    return next(new AppError("No vote record found with that ID", 404));
+  }
+
+  // Flatten the data structure
+  const flattenedData = {
+    voteRecordId: voteRecord._id,
+    pollTitle: voteRecord.pollId.title,
+    pollId: voteRecord.pollId._id,
+    pollCreatorId: voteRecord.pollId.creator._id,
+    pollCreatorUsername: voteRecord.pollId.creator.username,
+    pollOptions: voteRecord.pollId.options.map((option) => ({
+      optionId: option._id,
+      optionText: option.option,
+      optionVotes: option.votes,
+    })),
+    userId: voteRecord.userId._id,
+    username: voteRecord.userId.username,
+    optionId: voteRecord.optionId,
+    ipAddress: voteRecord.ipAddress,
+    votedAt: voteRecord.votedAt,
+  };
+
+  // Send the flattened data as the response
+  sendResponse(200, res, flattenedData, "Vote record fetched successfully");
 });
 
 //delete vote record
