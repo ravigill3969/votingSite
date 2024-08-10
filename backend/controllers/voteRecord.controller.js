@@ -184,7 +184,7 @@ export const deleteVoteRecord = catchAsync(async (req, res, next) => {
 });
 
 export const setVoteRecordToZero = catchAsync(async (req, res, next) => {
-  const pollId = req.body.pollId;
+  const pollId = req.params.pollId;
   const poll = await Poll.findById(pollId);
 
   if (!poll) {
