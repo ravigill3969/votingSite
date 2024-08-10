@@ -32,7 +32,6 @@ const pollSchema = new mongoose.Schema({
   ],
   correctAnswer: {
     type: String,
-    required: true,
   },
   startDate: { type: Date, default: Date.now },
   endDate: { type: Date, required: true },
@@ -60,6 +59,8 @@ pollSchema.methods.resetPollVotes = async function () {
   this.totalVotes = 0;
   return this.save();
 };
+
+
 
 const Poll = mongoose.model("Poll", pollSchema);
 

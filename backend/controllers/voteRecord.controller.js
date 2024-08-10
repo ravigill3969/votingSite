@@ -47,11 +47,10 @@ export const castVote = catchAsync(async (req, res) => {
 
   // Find the poll and option
   let poll = await Poll.findById(pollId);
-  console.log(poll.options);
   let option = await Option.findById(optionId);
 
   if (!poll || !option) {
-    return res.status(404).json({ message: "Poll or Option not found" });
+    return next(new AppError("Poll or Option not found", 404));
   }
 
   const containsOption = poll.options.some((optId) => optId.equals(optionId));
@@ -84,7 +83,7 @@ export const castVote = catchAsync(async (req, res) => {
       new: true,
     }
   );
-
+  const correctAnswer = poll.correctAnswer;
   const pollTotalVotes = poll.totalVotes; // Updated total votes
 
   // Use an aggregation pipeline to get all options with their votes and calculate percentage
@@ -115,13 +114,18 @@ export const castVote = catchAsync(async (req, res) => {
   sendResponse(
     201,
     res,
-    { newVoteRecord, pollTotalVotes, pollOptionsWithVotesAndPercentage },
+    {
+      newVoteRecord,
+      pollTotalVotes,
+      pollOptionsWithVotesAndPercentage,
+      correctAnswer,
+    },
     "Vote recorded successfully"
   );
 });
 
 //get all vote records
-//URL : /api/v1/voteRecord/getAll
+//URL : /api/v1/voteRecord/getall
 export const getAllVoteRecords = catchAsync(async (req, res, next) => {
   const voteRecords = await VoteRecord.find();
   if (!voteRecords) {
@@ -130,6 +134,8 @@ export const getAllVoteRecords = catchAsync(async (req, res, next) => {
   sendResponse(200, res, voteRecords, "Vote records fetched successfully");
 });
 
+//get vote record with id
+//URL : /api/v1/voteRecord/getone/:id
 export const getRecordWithId = catchAsync(async (req, res, next) => {
   // Find the vote record by ID and populate the necessary fields
   const voteRecord = await VoteRecord.findById(req.params.id)
@@ -175,4 +181,36 @@ export const deleteVoteRecord = catchAsync(async (req, res, next) => {
     status: "success",
     message: "Vote record deleted successfully",
   });
+});
+
+export const setVoteRecordToZero = catchAsync(async (req, res, next) => {
+  const pollId = req.body.pollId;
+  const poll = await Poll.findById(pollId);
+
+  if (!poll) {
+    return next(new AppError("No poll found with that ID", 404));
+  }
+
+  poll.resetPollVotes();
+  poll.save();
+  sendResponse(200, res, poll, "Poll updated successfully");
+});
+
+//middleware
+
+export const voteRecordActiveMiddleware = catchAsync(async (req, res, next) => {
+  const pollId = req.body.pollId;
+  const poll = await Poll.findById(pollId);
+  if (!poll) {
+    return next(new AppError("No poll found with that ID", 404));
+  }
+
+  if (!poll.isActive) {
+    return res.status(400).json({
+      status: "fail",
+      message: "Poll is not active",
+      startTime: poll.startTime,
+    });
+  }
+  next();
 });
